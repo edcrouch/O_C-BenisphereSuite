@@ -25,7 +25,12 @@
 #include "src/drivers/FreqMeasure/OC_FreqMeasure.h"
 namespace menu = OC::menu;
 
-#include "hemisphere_config.h"
+#ifdef CUSTOM_APP_SELECTION
+    #include "hemisphere_config_custom.h"
+#else
+    #include "hemisphere_config.h"
+#endif
+
 #include "HemisphereApplet.h"
 #include "HSicons.h"
 #include "HSMIDI.h"
@@ -90,8 +95,10 @@ public:
         help_hemisphere = -1;
         clock_setup = 0;
 
-        SetApplet(0, get_applet_index_by_id(18)); // DualTM
-        SetApplet(1, get_applet_index_by_id(15)); // EuclidX
+        // SetApplet(0, get_applet_index_by_id(18)); // DualTM
+        // SetApplet(1, get_applet_index_by_id(15)); // EuclidX
+        SetApplet(0, get_applet_index_by_id(available_applets[0].id)); // first app (easy setup)
+        SetApplet(1, get_applet_index_by_id(available_applets[1].id)); // second app
     }
 
     void Resume() {
