@@ -2,7 +2,7 @@
 # Autogenerates config file for customizable firmware
 # Run from source directory, e.g. ./resources/config_gen.sh
 
-filename=".hemisphere_config_custom.h"
+filename="hemisphere_config_custom.h"
 
 applets=(
 	"HEM_ADSREG|DECLARE_APPLET(  8, 0x01, ADSREG)"
@@ -24,6 +24,7 @@ applets=(
 	"HEM_CLOCKSKIP|DECLARE_APPLET( 28, 0x04, ClockSkip)"
 	"HEM_COMPARE|DECLARE_APPLET( 30, 0x10, Compare)"
 	"HEM_CVRECV2|DECLARE_APPLET( 24, 0x02, CVRecV2)"
+	"HEM_DRCRUSHER|DECLARE_APPLET( 63, 0x80, DrCrusher)"
 	"HEM_DRUMMAP|DECLARE_APPLET( 57, 0x02, DrumMap)"
 	"HEM_DUALQUANT|DECLARE_APPLET(  9, 0x08, DualQuant)"
 	"HEM_DUALTM|DECLARE_APPLET( 18, 0x02, DualTM)"
