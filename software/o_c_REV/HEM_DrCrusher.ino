@@ -67,7 +67,7 @@ public:
             mask = get_mask();
         }
     }
-        
+
     uint64_t OnDataRequest() {
         uint64_t data = 0;
         Pack(data, PackLocation {0,3}, rate);
@@ -90,7 +90,7 @@ protected:
         help[HEMISPHERE_HELP_ENCODER]  = "Rate/Depth";
         //                               "------------------" <-- Size Guide
     }
-    
+
 private:
     int cursor; // 0 = Rate, 1 = Depth
     int rate = 0;
@@ -99,7 +99,7 @@ private:
     // Housekeeping
     byte count = 0;
     uint16_t mask = 0xffff;
-    
+
     void DrawInterface() {
         gfxPrint(1, 15, crusher_rate[rate]);
         gfxPrint("kHz");
