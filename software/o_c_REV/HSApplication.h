@@ -32,6 +32,7 @@ typedef int32_t simfloat;
 #endif
 
 #include "HSicons.h"
+#include "HSClockManager.h"
 
 #ifndef HSAPPLICATION_H_
 #define HSAPPLICATION_H_
@@ -133,13 +134,23 @@ public:
 
     bool Clock(int ch) {
         bool clocked = 0;
-        if (ch == 0) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_1>();
-        if (ch == 1) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_2>();
-        if (ch == 2) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_3>();
-        if (ch == 3) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_4>();
+        ClockManager *clock_m = clock_m->get();
+
+        if (clock_m->IsRunning() && clock_m->GetMultiply(ch) != 0)
+            clocked = clock_m->Tock(ch);
+        else {
+            if (ch == 0) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_1>();
+            if (ch == 1) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_2>();
+            if (ch == 2) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_3>();
+            if (ch == 3) clocked = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_4>();
+        }
+
+        // manual triggers
+        clocked = clocked || clock_m->Beep(ch);
+
         if (clocked) {
-        		cycle_ticks[ch] = OC::CORE::ticks - last_clock[ch];
-        		last_clock[ch] = OC::CORE::ticks;
+            cycle_ticks[ch] = OC::CORE::ticks - last_clock[ch];
+            last_clock[ch] = OC::CORE::ticks;
         }
         return clocked;
     }
@@ -258,6 +269,11 @@ public:
          gfxPrint(1, 2, str);
          gfxLine(0, 10, 127, 10);
          gfxLine(0, 12, 127, 12);
+    }
+
+    int ProportionCV(int cv_value, int max_pixels) {
+        int prop = constrain(Proportion(cv_value, HSAPPLICATION_5V, max_pixels), -max_pixels, max_pixels);
+        return prop;
     }
 
 protected:

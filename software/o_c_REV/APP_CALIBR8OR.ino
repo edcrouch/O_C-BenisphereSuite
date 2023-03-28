@@ -26,12 +26,14 @@
 
 #include "HSApplication.h"
 #include "HSMIDI.h"
+#include "HSClockManager.h"
 #include "util/util_settings.h"
 #include "braids_quantizer.h"
 #include "braids_quantizer_scales.h"
 #include "OC_scales.h"
 #include "SegmentDisplay.h"
 #include "src/drivers/FreqMeasure/OC_FreqMeasure.h"
+#include "HemisphereApplet.h"
 
 #define CAL8_MAX_TRANSPOSE 60
 const int CAL8OR_PRECISION = 10000;
@@ -152,12 +154,6 @@ Calibr8orPreset cal8_presets[NR_OF_PRESETS];
 
 class Calibr8or : public HSApplication {
 public:
-	enum Cal8EditMode {
-        TRANSPOSE,
-        TRACKING,
-
-        NR_OF_EDITMODES
-    };
 
 	void Start() {
         segment.Init(SegmentSize::BIG_SEGMENTS);
@@ -204,6 +200,37 @@ public:
 	}
 
     void Controller() {
+        bool clock_sync = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_1>();
+        bool reset = OC::DigitalInputs::clocked<OC::DIGITAL_INPUT_4>();
+        bool midi_sync = 0;
+
+        // flush MIDI input and catch incoming Clock
+        while (usbMIDI.read()) {
+            switch (usbMIDI.getType()) {
+            case usbMIDI.Clock:
+                clock_sync = 1;
+                midi_sync = 1;
+                break;
+            case usbMIDI.Start:
+                clock_m->Start();
+                break;
+            case usbMIDI.Stop:
+                clock_m->Stop();
+                break;
+            }
+            // TODO: do we need to handle any other MIDI input?
+            // We will have to in Hemisphere... for the MIDI In applet.
+            // Might need to delegate other messages or something
+        }
+        if (midi_sync) clock_m->SetClockPPQN(24); // rudely snap to MIDI clock sync speed
+
+        // Advance internal clock, sync to external clock / reset
+        if (clock_m->IsRunning()) clock_m->SyncTrig( clock_sync, reset );
+
+        // ClockSetup applet handles MIDI Clock Out
+        HS::clock_setup_applet.Controller(0, 0);
+
+        // -- core processing --
         for (int ch = 0; ch < NR_OF_CHANNELS; ++ch) {
             bool clocked = Clock(ch);
             Cal8ChannelConfig &c = channel[ch];
@@ -225,17 +252,30 @@ public:
             output_cv += c.offset;
 
             Out(ch, output_cv);
+
+            // for UI flashers
+            if (clocked) trigger_flash[ch] = HEMISPHERE_PULSE_ANIMATION_TIME;
+            else if (trigger_flash[ch]) --trigger_flash[ch];
         }
     }
 
     void View() {
+        if (clock_setup) {
+            HS::clock_setup_applet.View(0);
+            return;
+        }
+
         gfxHeader("Calibr8or");
 
-        if (preset_select) {
-            gfxPrint(64, 1, "- Presets");
-            DrawPresetSelector();
+        // Metronome icon
+        if (clock_m->IsRunning() || clock_m->IsPaused()) {
+            graphics.drawBitmap8(56, 1, 8, clock_m->Cycle() ? METRO_L_ICON : METRO_R_ICON);
         }
-        else {
+
+        if (preset_select) {
+            gfxPrint(70, 1, "- Presets");
+            DrawPresetSelector();
+        } else {
             gfxPos(110, 1);
             if (preset_modified) gfxPrint("*");
             if (cal8_presets[index].is_valid()) gfxPrint(cal8_preset_id[index]);
@@ -244,14 +284,38 @@ public:
         }
     }
 
+    void Screensaver() {
+        gfxDottedLine(0, 32, 127, 32); // horizontal baseline
+        for (int ch = 0; ch < 4; ++ch)
+        {
+            gfxPrint(8 + 32*ch, 55, midi_note_numbers[MIDIQuantizer::NoteNumber(channel[ch].last_note)] );
+            if (trigger_flash[ch] > 0) gfxIcon(11 + 32*ch, 0, CLOCK_ICON);
+
+            // input
+            int height = ProportionCV(ViewIn(ch), 32);
+            int y = constrain(32 - height, 0, 32);
+            gfxFrame(3 + (32 * ch), y, 6, abs(height));
+
+            // output
+            height = ProportionCV(ViewOut(ch), 32);
+            y = constrain(32 - height, 0, 32);
+            gfxInvert(11 + (32 * ch), y, 12, abs(height));
+
+            gfxLine(32 * ch, 0, 32*ch, 63); // vertical divider, left side
+        }
+        gfxLine(127, 0, 127, 63); // vertical line, right side
+    }
 
     /////////////////////////////////////////////////////////////////
     // Control handlers
     /////////////////////////////////////////////////////////////////
     void OnLeftButtonPress() {
+        // handled on button down
+        if (clock_setup) return;
+
         // Toggle between Transpose mode and Tracking Compensation
         // also doubles as Load or Save for preset select
-        ++edit_mode %= NR_OF_EDITMODES;
+        edit_mode = !edit_mode;
 
         // prevent saving to the (clear) slot
         if (edit_mode && preset_select == 5) preset_select = 4;
@@ -266,6 +330,9 @@ public:
     }
 
     void OnRightButtonPress() {
+        // handled on button down
+        if (clock_setup) return;
+
         if (preset_select) {
             // special case to clear values
             if (!edit_mode && preset_select == NR_OF_PRESETS + 1) {
@@ -286,16 +353,37 @@ public:
         scale_edit = !scale_edit;
     }
 
-    void OnUpButtonPress() {
-        preset_select = 0;
-
-        ++sel_chan %= NR_OF_CHANNELS;
+    void OnButtonDown(const UI::Event &event) {
+        // check for clock setup secret combo (dual press)
+        if ( event.control == OC::CONTROL_BUTTON_DOWN || event.control == OC::CONTROL_BUTTON_UP)
+            UpOrDownButtonPress(event.control == OC::CONTROL_BUTTON_UP);
+        else if (clock_setup) // pass button down to Clock Setup
+            HS::clock_setup_applet.OnButtonPress(0);
     }
 
-    void OnDownButtonPress() {
-        preset_select = 0;
+    void UpOrDownButtonPress(bool up) {
+        if (OC::CORE::ticks - click_tick < HEMISPHERE_DOUBLE_CLICK_TIME && up != first_click) {
+            // show clock setup if both buttons pressed quickly
+            clock_setup = 1;
+            click_tick = 0;
+        } else {
+            click_tick = OC::CORE::ticks;
+            first_click = up;
+        }
+    }
 
-        if (--sel_chan < 0) sel_chan += NR_OF_CHANNELS;
+    // fires on button release
+    void SwitchChannel(bool up) {
+        if (!clock_setup && !preset_select) {
+            sel_chan += (up? 1 : -1) + NR_OF_CHANNELS;
+            sel_chan %= NR_OF_CHANNELS;
+        }
+
+        if (click_tick) {
+            // always cancel clock setup and preset select on single click
+            clock_setup = 0;
+            preset_select = 0;
+        }
     }
 
     void OnDownButtonLongPress() {
@@ -305,7 +393,14 @@ public:
 
     // Left encoder: Octave or VScaling + Root Note
     void OnLeftEncoderMove(int direction) {
-        if (preset_select) return;
+        if (clock_setup) {
+            HS::clock_setup_applet.OnEncoderMove(0, direction);
+            return;
+        }
+        if (preset_select) {
+            edit_mode = (direction>0);
+            return;
+        }
 
         preset_modified = 1;
         if (scale_edit) {
@@ -314,7 +409,7 @@ public:
             return;
         }
 
-        if (edit_mode == TRANSPOSE) { // Octave jump
+        if (!edit_mode) { // Octave jump
             int s = OC::Scales::GetScale(channel[sel_chan].scale).num_notes;
             channel[sel_chan].transpose += (direction * s);
             while (channel[sel_chan].transpose > CAL8_MAX_TRANSPOSE) channel[sel_chan].transpose -= s;
@@ -327,6 +422,10 @@ public:
 
     // Right encoder: Semitones or Bias Offset + Scale Select
     void OnRightEncoderMove(int direction) {
+        if (clock_setup) {
+            HS::clock_setup_applet.OnEncoderMove(0, direction);
+            return;
+        }
         if (preset_select) {
             preset_select = constrain(preset_select + direction, 1, NR_OF_PRESETS + (1-edit_mode));
             return;
@@ -344,7 +443,7 @@ public:
             return;
         }
 
-        if (edit_mode == TRANSPOSE) {
+        if (!edit_mode) {
             channel[sel_chan].transpose = constrain(channel[sel_chan].transpose + direction, -CAL8_MAX_TRANSPOSE, CAL8_MAX_TRANSPOSE);
         }
         else {
@@ -356,17 +455,24 @@ private:
     int index = 0;
 
 	int sel_chan = 0;
-    int edit_mode = 0; // Cal8EditMode
+    bool edit_mode = 0;
     bool scale_edit = 0;
     int preset_select = 0; // both a flag and an index
     bool preset_modified = 0;
+
+    uint32_t click_tick = 0;
+    bool first_click = 0;
+    bool clock_setup = 0;
+
+    int trigger_flash[NR_OF_CHANNELS];
 
     SegmentDisplay segment;
     braids::Quantizer quantizer[NR_OF_CHANNELS];
     Cal8ChannelConfig channel[NR_OF_CHANNELS];
 
+    ClockManager *clock_m = clock_m->get();
+
     void DrawPresetSelector() {
-        // TODO: Preset selection screen
         // index is the currently loaded preset (0-3)
         // preset_select is current selection (1-4, 5=clear)
         int y = 5 + 10*preset_select;
@@ -524,28 +630,44 @@ void Calibr8or_loop() {} // Deprecated
 void Calibr8or_menu() { Calibr8or_instance.BaseView(); }
 
 void Calibr8or_screensaver() {
-    // XXX: Consider a view like Quantermain
-    // other ideas: Actual note being played, current transpose setting
-    // ...for all 4 channels at once.
+    Calibr8or_instance.Screensaver();
 }
 
 void Calibr8or_handleButtonEvent(const UI::Event &event) {
     // For left encoder, handle press and long press
-    if (event.control == OC::CONTROL_BUTTON_L) {
-        if (event.type == UI::EVENT_BUTTON_LONG_PRESS) Calibr8or_instance.OnLeftButtonLongPress();
-        else Calibr8or_instance.OnLeftButtonPress();
-    }
-
     // For right encoder, only handle press (long press is reserved)
-    if (event.control == OC::CONTROL_BUTTON_R && event.type == UI::EVENT_BUTTON_PRESS) Calibr8or_instance.OnRightButtonPress();
-
     // For up button, handle only press (long press is reserved)
-    if (event.control == OC::CONTROL_BUTTON_UP) Calibr8or_instance.OnUpButtonPress();
-
     // For down button, handle press and long press
-    if (event.control == OC::CONTROL_BUTTON_DOWN) {
-        if (event.type == UI::EVENT_BUTTON_PRESS) Calibr8or_instance.OnDownButtonPress();
-        if (event.type == UI::EVENT_BUTTON_LONG_PRESS) Calibr8or_instance.OnDownButtonLongPress();
+    switch (event.type) {
+    case UI::EVENT_BUTTON_DOWN:
+        Calibr8or_instance.OnButtonDown(event);
+
+        break;
+    case UI::EVENT_BUTTON_PRESS: {
+        switch (event.control) {
+        case OC::CONTROL_BUTTON_L:
+            Calibr8or_instance.OnLeftButtonPress();
+            break;
+        case OC::CONTROL_BUTTON_R:
+            Calibr8or_instance.OnRightButtonPress();
+            break;
+        case OC::CONTROL_BUTTON_DOWN:
+        case OC::CONTROL_BUTTON_UP:
+            Calibr8or_instance.SwitchChannel(event.control == OC::CONTROL_BUTTON_UP);
+            break;
+        default: break;
+        }
+    } break;
+    case UI::EVENT_BUTTON_LONG_PRESS:
+        if (event.control == OC::CONTROL_BUTTON_L) {
+            Calibr8or_instance.OnLeftButtonLongPress();
+        }
+        if (event.control == OC::CONTROL_BUTTON_DOWN) {
+            Calibr8or_instance.OnDownButtonLongPress();
+        }
+        break;
+
+    default: break;
     }
 }
 

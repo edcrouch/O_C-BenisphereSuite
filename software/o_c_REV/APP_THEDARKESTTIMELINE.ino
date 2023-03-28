@@ -81,9 +81,9 @@ public:
             int data2 = usbMIDI.getData2();
 
             // Handle system exclusive dump for Setup data
-            if (message == MIDI_MSG_SYSEX) OnReceiveSysEx();
+            if (message == HEM_MIDI_SYSEX) OnReceiveSysEx();
 
-            if (message == MIDI_MSG_NOTE_ON && channel == midi_channel_in()) {
+            if (message == HEM_MIDI_NOTE_ON && channel == midi_channel_in()) {
                 note_on = 1;
                 in_note_number = data1;
                 in_velocity = data2;
@@ -568,14 +568,14 @@ void TheDarkestTimeline_handleButtonEvent(const UI::Event &event) {
     // For left encoder, handle press and long press
     if (event.control == OC::CONTROL_BUTTON_L) {
         if (event.type == UI::EVENT_BUTTON_LONG_PRESS) TheDarkestTimeline_instance.OnLeftButtonLongPress();
-        else TheDarkestTimeline_instance.OnLeftButtonPress();
+        if (event.type == UI::EVENT_BUTTON_PRESS) TheDarkestTimeline_instance.OnLeftButtonPress();
     }
 
     // For right encoder, only handle press (long press is reserved)
     if (event.control == OC::CONTROL_BUTTON_R && event.type == UI::EVENT_BUTTON_PRESS) TheDarkestTimeline_instance.OnRightButtonPress();
 
     // For up button, handle only press (long press is reserved)
-    if (event.control == OC::CONTROL_BUTTON_UP) TheDarkestTimeline_instance.OnUpButtonPress();
+    if (event.control == OC::CONTROL_BUTTON_UP && event.type == UI::EVENT_BUTTON_PRESS) TheDarkestTimeline_instance.OnUpButtonPress();
 
     // For down button, handle press and long press
     if (event.control == OC::CONTROL_BUTTON_DOWN) {

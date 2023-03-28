@@ -404,18 +404,30 @@ void Ui::AppSettings() {
       if (IgnoreEvent(event))
         continue;
 
-      if (UI::EVENT_ENCODER == event.type && CONTROL_ENCODER_R == event.control) {
-        cursor.Scroll(event.value);
-      } else if (CONTROL_BUTTON_R == event.control) {
+      switch (event.control) {
+      case CONTROL_ENCODER_R:
+        if (UI::EVENT_ENCODER == event.type)
+          cursor.Scroll(event.value);
+        break;
+
+      case CONTROL_BUTTON_R:
         save = event.type == UI::EVENT_BUTTON_LONG_PRESS;
-        change_app = true;
-      } else if (CONTROL_BUTTON_L == event.control) {
-        ui.DebugStats();
-      } else if (CONTROL_BUTTON_UP == event.control) {
-        bool enabled = !global_settings.encoders_enable_acceleration;
-        SERIAL_PRINTLN("Encoder acceleration: %s", enabled ? "enabled" : "disabled");
-        ui.encoders_enable_acceleration(enabled);
-        global_settings.encoders_enable_acceleration = enabled;
+        change_app = event.type != UI::EVENT_BUTTON_DOWN; // true on button release
+        break;
+      case CONTROL_BUTTON_L:
+        if (UI::EVENT_BUTTON_PRESS == event.type)
+            ui.DebugStats();
+        break;
+      case CONTROL_BUTTON_UP:
+        if (UI::EVENT_BUTTON_PRESS == event.type) {
+            bool enabled = !global_settings.encoders_enable_acceleration;
+            SERIAL_PRINTLN("Encoder acceleration: %s", enabled ? "enabled" : "disabled");
+            ui.encoders_enable_acceleration(enabled);
+            global_settings.encoders_enable_acceleration = enabled;
+        }
+        break;
+
+        default: break;
       }
     }
 
@@ -461,10 +473,10 @@ bool Ui::ConfirmReset() {
       UI::Event event = event_queue_.PullEvent();
       if (IgnoreEvent(event))
         continue;
-      if (CONTROL_BUTTON_R == event.control) {
+      if (CONTROL_BUTTON_R == event.control && UI::EVENT_BUTTON_PRESS == event.type) {
         confirm = true;
         done = true;
-      } else if (CONTROL_BUTTON_L == event.control) {
+      } else if (CONTROL_BUTTON_L == event.control && UI::EVENT_BUTTON_PRESS == event.type) {
         confirm = false;
         done = true;
       }
