@@ -83,7 +83,12 @@ typedef int32_t simfloat;
   class_name ## _OnDataRequest, class_name ## _OnDataReceive \
 }
 
-#include "hemisphere_config.h"
+#ifdef CUSTOM_APP_SELECTION
+    #include "hemisphere_config_custom.h"
+#else
+    #include "hemisphere_config.h"
+#endif
+
 
 namespace HS {
 
