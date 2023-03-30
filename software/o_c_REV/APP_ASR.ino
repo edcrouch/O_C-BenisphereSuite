@@ -100,7 +100,7 @@ enum ASR_CV4_DEST {
 
 typedef int16_t ASR_pitch;
 
-class ASRFull : public settings::SettingsBase<ASRFull, ASR_SETTING_LAST> {
+class ASRApp : public settings::SettingsBase<ASRApp, ASR_SETTING_LAST> {
 public:
   static constexpr size_t kHistoryDepth = 5;
 
@@ -330,7 +330,7 @@ public:
     const int scale = get_scale(DUMMY);
     uint16_t mask = get_mask();
     if (mask_rotate)
-      mask = OC::ScaleEditor<ASRFull>::RotateMask(mask, OC::Scales::GetScale(scale).num_notes, mask_rotate);
+      mask = OC::ScaleEditor<ASRApp>::RotateMask(mask, OC::Scales::GetScale(scale).num_notes, mask_rotate);
 
     if (force || (last_scale_ != scale || last_mask_ != mask)) {
 
@@ -743,7 +743,7 @@ const char* const int_seq_CV_destinations[] = {
 };
 
 
-SETTINGS_DECLARE(ASRFull, ASR_SETTING_LAST) {
+SETTINGS_DECLARE(ASRApp, ASR_SETTING_LAST) {
   { OC::Scales::SCALE_SEMI, 0, OC::Scales::NUM_SCALES - 1, "Scale", OC::scale_names_short, settings::STORAGE_TYPE_U8 },
   { 0, -5, 5, "octave", NULL, settings::STORAGE_TYPE_I8 }, // octave
   { 0, 0, 11, "root", OC::Strings::note_names_unpadded, settings::STORAGE_TYPE_U8 },
@@ -793,11 +793,11 @@ public:
   int left_encoder_value;
   menu::ScreenCursor<menu::kScreenLines> cursor;
   menu::ScreenCursor<menu::kScreenLines> cursor_state;
-  OC::ScaleEditor<ASRFull> scale_editor;
+  OC::ScaleEditor<ASRApp> scale_editor;
 };
 
 ASRState asr_state;
-ASRFull asr;
+ASRApp asr;
 
 void ASR_init() {
 
@@ -809,7 +809,7 @@ void ASR_init() {
 }
 
 size_t ASR_storageSize() {
-  return ASRFull::storageSize();
+  return ASRApp::storageSize();
 }
 
 size_t ASR_restore(const void *storage) {
@@ -1002,7 +1002,7 @@ void ASR_menu() {
 
     const int setting = asr.enabled_setting_at(settings_list.Next(list_item));
     const int value = asr.get_value(setting);
-    const settings::value_attr &attr = ASRFull::value_attr(setting);
+    const settings::value_attr &attr = ASRApp::value_attr(setting);
 
     switch (setting) {
 
@@ -1031,7 +1031,7 @@ void ASR_menu() {
     asr_state.scale_editor.Draw();
 }
 
-uint16_t channel_history[ASRFull::kHistoryDepth];
+uint16_t channel_history[ASRApp::kHistoryDepth];
 
 void ASR_screensaver() {
 
